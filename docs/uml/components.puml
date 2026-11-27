@@ -1,0 +1,49 @@
+@startuml components
+!include _style.iuml
+title Архитектура: компоненты и развёртывание (docker compose: web + db)
+
+node "Браузер пользователя" {
+  [index.html + app.js + lab.js\n(Chart.js)] as UI
+}
+node "Контейнер web (JVM 21)" {
+  package "web-kotlin (Ktor)" {
+    [REST API\nApplication.kt] as API
+    [MarketService] as SVC
+    [LabService\n(квант-лаборатория)] as LAB
+    [CppEngine\n(адаптер процесса)] as CE
+    [MarketRepository\n(Postgres / InMemory)] as REPO
+    [MoexClient + MoexSync\n(импорт, автообновление)] as MOEX
+    package "market.core (Kotlin-порт)" {
+      [CsvLoader] as KL
+      [Indicators] as KI
+      [Analyzer] as KA
+    }
+  }
+  package "core-cpp (C++17)" {
+    [market_cli] as CLI
+    [libmarket_core\nядро: CsvLoader · Indicators · Analyzer\nквант: Backtest · MonteCarlo · Portfolio] as CORE
+  }
+  folder "data/*.csv\n(демо-котировки)" as DATA
+}
+cloud "Московская биржа\niss.moex.com" as ISS
+node "PostgreSQL 16" {
+  database "market\n(Flyway-миграции)" as PG
+}
+
+UI --> API : HTTP/JSON
+API --> SVC
+SVC --> KA
+KA --> KI
+SVC --> KL
+SVC --> REPO
+SVC --> MOEX
+MOEX --> ISS : HTTPS, ISS API\n(дневные свечи)
+MOEX --> REPO : save / upsert
+REPO --> PG : JDBC (HikariCP)
+REPO ..> DATA : демо, если биржа недоступна
+API --> LAB
+LAB --> CE
+LAB --> REPO : котировки / lab_run
+CE --> CLI : CSV из БД → backtest | montecarlo | portfolio → JSON
+CLI --> CORE
+@enduml

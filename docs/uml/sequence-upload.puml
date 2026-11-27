@@ -1,0 +1,32 @@
+@startuml sequence-upload
+!include _style.iuml
+title Диаграмма последовательности: загрузка CSV пользователя
+autonumber
+actor Пользователь as U
+participant "Браузер" as B
+participant "Ktor" as A
+participant MarketService as S
+participant CsvLoader as L
+participant Analyzer as Z
+
+U -> B : выбирает файл .csv
+B -> B : проверка размера ≤ 5 МБ
+B -> A : POST /api/analysis?ticker=T (text/csv)
+A -> A : Content-Length ≤ 5 МБ, тикер [A-Za-z0-9_.-]
+A -> S : analyzeUpload(T, csv, params, engine)
+S -> L : load(csv)
+loop каждая строка
+  L -> L : разбор, validate(candle), порядок дат
+end
+alt ошибка в строке N
+  L --> S : MarketDataException(N)
+  S --> A
+  A --> B : 422 {error, line: N}
+else
+  L --> S : List<Candle>
+  S -> Z : analyze(...)
+  Z --> S : AnalysisReport
+  S --> A
+  A --> B : 200 JSON
+end
+@enduml

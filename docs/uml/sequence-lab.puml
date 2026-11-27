@@ -1,0 +1,35 @@
+@startuml sequence-lab
+!include _style.iuml
+title Диаграмма последовательности: расчёт в квант-лаборатории (C++)
+autonumber
+actor Пользователь as U
+participant "Браузер\n(lab.js)" as B
+participant "Ktor" as A
+participant LabService as L
+database PostgreSQL as DB
+participant CppEngine as C
+participant "market_cli\n(C++)" as X
+
+U -> B : «Запустить в C++»\n(бэктест / Монте-Карло / портфель)
+B -> A : POST /api/lab/{kind}/...?параметры
+A -> L : backtest | monteCarlo | portfolio
+L -> L : проверка диапазонов параметров
+alt C++ модуль не собран
+  L --> A : LabUnavailableException
+  A --> B : 503
+end
+L -> DB : SELECT quote WHERE ticker = ? (для каждой бумаги)
+DB --> L : свечи
+L -> L : временные CSV-файлы
+L -> C : run([kind, файлы, параметры])
+C -> X : процесс + аргументы
+X -> X : перебор пар SMA / сценарии / портфели
+X --> C : JSON + computeMs (stdout)
+C --> L : JSON
+L -> L : краткий итог (headline)
+L -> DB : INSERT lab_run (JSONB) + lab_run_instrument
+DB --> L : lab_run_id
+L --> A : LabRunResponse
+A --> B : 200 JSON
+B --> U : показатели, графики, тепловая карта,\nстрока в «Истории расчётов»
+@enduml

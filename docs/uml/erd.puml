@@ -1,0 +1,113 @@
+@startuml erd
+!include _style.iuml
+title ER-диаграмма: схема PostgreSQL (Flyway V1–V3)
+hide circle
+skinparam linetype ortho
+
+entity "instrument\n(инструмент)" as I {
+  * ticker : VARCHAR(32) <<PK>>
+  --
+  source : VARCHAR(16) moex | upload | demo
+  name : VARCHAR(128) NULL
+  synced_at : TIMESTAMPTZ NULL
+  created_at : TIMESTAMPTZ
+  updated_at : TIMESTAMPTZ
+}
+entity "quote\n(дневная свеча)" as Q {
+  * ticker : VARCHAR(32) <<PK, FK>>
+  * trade_date : DATE <<PK>>
+  --
+  open : DOUBLE > 0
+  high : DOUBLE >= max(open, close)
+  low : DOUBLE <= min(open, close)
+  close : DOUBLE > 0
+  volume : BIGINT >= 0
+}
+entity "analysis_run\n(запуск анализа)" as R {
+  * run_id : BIGINT IDENTITY <<PK>>
+  --
+  * ticker : VARCHAR(32) <<FK>>
+  engine : kotlin | cpp
+  fast_period < slow_period : INT
+  rsi_period : INT
+  risk_free_pct : DOUBLE
+  sessions, first_date, last_date
+  created_at : TIMESTAMPTZ
+}
+entity "metrics_report\n(метрики)" as M {
+  * run_id : BIGINT <<PK, FK>>
+  --
+  last_close : DOUBLE
+  total_return_pct : DOUBLE
+  annual_volatility_pct : DOUBLE >= 0
+  max_drawdown_pct : DOUBLE [0; 100]
+  sharpe_ratio : DOUBLE
+  rsi : DOUBLE [0; 100]
+  trend, rsi_zone : VARCHAR (enum)
+}
+entity "indicator_point\n(точка ряда)" as P {
+  * run_id : BIGINT <<PK, FK>>
+  * trade_date : DATE <<PK>>
+  --
+  close : DOUBLE
+  sma_fast : DOUBLE NULL
+  sma_slow : DOUBLE NULL
+  rsi : DOUBLE NULL
+}
+entity "trade_signal\n(сигнал)" as S {
+  * run_id : BIGINT <<PK, FK>>
+  * trade_date : DATE <<PK>>
+  --
+  type : BUY | SELL
+  price : DOUBLE > 0
+}
+entity "comparison\n(сравнение)" as C {
+  * comparison_id : BIGINT IDENTITY <<PK>>
+  --
+  fast/slow/rsi_period, risk_free_pct
+  common_dates : INT
+  created_at : TIMESTAMPTZ
+}
+entity "comparison_item" as CI {
+  * comparison_id : BIGINT <<PK, FK>>
+  * ticker : VARCHAR(32) <<PK, FK>>
+  --
+  position : SMALLINT
+  метрики инструмента
+}
+entity "correlation_cell" as CC {
+  * comparison_id : BIGINT <<PK, FK>>
+  * ticker_a : VARCHAR(32) <<PK, FK>>
+  * ticker_b : VARCHAR(32) <<PK, FK>>
+  --
+  value : DOUBLE [-1; 1]
+}
+
+entity "lab_run\n(расчёт лаборатории C++)" as LR {
+  * lab_run_id : BIGINT IDENTITY <<PK>>
+  --
+  kind : backtest | montecarlo | portfolio
+  headline : VARCHAR(256)
+  params : JSONB
+  result : JSONB
+  compute_ms : DOUBLE
+  created_at : TIMESTAMPTZ
+}
+entity "lab_run_instrument" as LRI {
+  * lab_run_id : BIGINT <<PK, FK>>
+  * ticker : VARCHAR(32) <<PK, FK>>
+  --
+  position : SMALLINT
+}
+
+I ||--o{ Q : "котировки"
+LR ||--|{ LRI : "1..10 бумаг"
+I ||--o{ LRI
+I ||--o{ R : "анализы"
+R ||--|| M : "метрики"
+R ||--o{ P : "ряды"
+R ||--o{ S : "сигналы"
+C ||--|{ CI : "2..8 бумаг"
+I ||--o{ CI
+CI ||--o{ CC : "матрица N×N"
+@enduml

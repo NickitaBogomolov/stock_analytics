@@ -1,0 +1,38 @@
+@startuml activity-csv
+!include _style.iuml
+title Диаграмма активности: загрузка и проверка CSV
+start
+:Открыть поток / файл;
+if (Файл открыт?) then (нет)
+  :MarketDataError("cannot open file");
+  stop
+endif
+repeat :Прочитать строку N;
+  if (Пустая строка?) then (да)
+  elseif (Заголовок ещё не прочитан?) then (да)
+    if (Начинается с "Date"?) then (нет)
+      :Ошибка: нет заголовка (строка N);
+      stop
+    endif
+  else (данные)
+    :Разбить по запятой, обрезать пробелы;
+    if (6 колонок?) then (нет)
+      :Ошибка: число колонок (строка N);
+      stop
+    endif
+    :Разобрать числа (только десятичная запись);
+    :Проверить дату YYYY-MM-DD,\nцены > 0, low ≤ open,close ≤ high,\nобъём — целое ≥ 0;
+    if (Дата > предыдущей?) then (нет)
+      :Ошибка: порядок дат (строка N);
+      stop
+    endif
+    :Добавить Candle;
+  endif
+repeat while (Есть ещё строки?) is (да)
+if (Свечей > 0?) then (нет)
+  :Ошибка: нет котировок;
+  stop
+endif
+:Вернуть список свечей;
+stop
+@enduml
