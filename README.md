@@ -159,6 +159,12 @@ MARKET_TEST_DB_URL=jdbc:postgresql://localhost:5432/market_test MARKET_TEST_DB_U
 - Настройки (переменные окружения): `MARKET_MOEX_TICKERS` (список тикеров для автозагрузки), `MARKET_MOEX_YEARS` (глубина истории, 3),
   `MARKET_REFRESH_HOURS` (период обновления, 6), `MARKET_MOEX_ENABLED=false` — отключить биржу (только CSV/демо).
 - API приложения: `POST /api/instruments/{t}/moex` — загрузить бумагу, `POST /api/instruments/{t}/refresh` — обновить, `GET /api/sync` — состояние синхронизации.
+- TLS: `iss.moex.com` подписан сертификатами НУЦ Минцифры (`Russian Trusted Root CA` → `Russian Trusted Sub CA`).
+  Их нет в стандартных хранилищах, поэтому в `deploy/certs/` лежат корневые сертификаты, а образ при сборке добавляет
+  их и в системное хранилище Ubuntu, и в `cacerts` JVM. Без этого запросы падают с
+  `PKIX path building failed`. Любой свой `*.crt`, положенный в `deploy/certs/`, тоже будет добавлен
+  (например, корень корпоративного прокси или антивируса).
+
 
 ## Формат данных
 
@@ -205,7 +211,7 @@ ER-диаграмма — [docs/img/erd.png](docs/img/erd.png). Таблицы: 
 core-cpp/      C++17 ядро: include/, src/, app/main.cpp (CLI), tests/ (Google Test)
 web-kotlin/    Kotlin: market.core (порт), market.web (Ktor), market.web.storage (PostgreSQL), db/migration, static (UI), src/test
 data/          демо-котировки (CSV), импортируются в БД при старте
-deploy/        init-скрипт PostgreSQL
+deploy/        init-скрипт PostgreSQL, certs/ — корневые сертификаты для TLS (НУЦ Минцифры)
 Dockerfile     многоэтапная сборка C++ + Kotlin; compose.yaml — web + PostgreSQL
 docs/          требования, архитектура, UML/ERD, сравнение, тестирование, презентация
 tools/         генератор демо-данных

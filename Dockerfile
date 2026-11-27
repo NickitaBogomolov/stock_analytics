@@ -39,9 +39,20 @@ CMD ["sh", "-c", "ctest --test-dir /src/core-cpp/build --output-on-failure && ./
 
 # ---------- 4. Итоговый образ ----------
 FROM eclipse-temurin:21-jre-noble AS runtime
+# iss.moex.com (*.moex.com) подписан сертификатами НУЦ Минцифры:
+# Russian Trusted Root CA -> Russian Trusted Sub CA. Их нет ни в ca-certificates Ubuntu,
+# ни в cacerts JVM — отсюда "(certificate_unknown) PKIX path building failed".
+# Ставим в оба хранилища: системное (curl, healthcheck) и cacerts (HttpClient в MoexClient).
+# В deploy/certs можно положить любой *.crt — например корень корпоративного прокси.
+COPY deploy/certs/ /usr/local/share/ca-certificates/
 RUN apt-get update \
- && apt-get install -y --no-install-recommends curl \
+ && apt-get install -y --no-install-recommends curl ca-certificates \
  && rm -rf /var/lib/apt/lists/* \
+ && update-ca-certificates \
+ && for crt in /usr/local/share/ca-certificates/*.crt; do \
+      keytool -importcert -noprompt -cacerts -storepass changeit \
+        -alias "market-$(basename "$crt" .crt)" -file "$crt"; \
+    done \
  && useradd --system --uid 10001 --create-home market
 WORKDIR /app
 COPY --from=kotlin-build /src/web-kotlin/build/install/market-web/ /app/
