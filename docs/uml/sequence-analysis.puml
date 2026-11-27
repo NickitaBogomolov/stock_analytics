@@ -1,0 +1,43 @@
+@startuml sequence-analysis
+!include _style.iuml
+title Диаграмма последовательности: анализ инструмента
+autonumber
+actor Пользователь as U
+participant "Браузер\n(app.js)" as B
+participant "Ktor\nApplication" as A
+participant MarketService as S
+database "PostgreSQL" as DBX
+participant Analyzer as Z
+participant CppEngine as C
+participant "market_cli\n(C++)" as X
+
+U -> B : выбирает тикер,\nзадаёт параметры
+B -> A : GET /api/instruments/{t}/analysis?fast&slow&rsi&rf&engine
+A -> A : проверка параметров
+alt некорректный параметр
+  A --> B : 400 {error}
+end
+A -> S : analyze(ticker, params, engine)
+S -> DBX : SELECT quote WHERE ticker = ?
+DBX --> S : List<Candle>
+alt engine = kotlin
+  S -> Z : analyze(ticker, candles, params)
+  Z --> S : AnalysisReport
+else engine = cpp
+  S -> C : analyze(временный CSV, ticker, params)
+  C -> X : запуск процесса с аргументами
+  X --> C : JSON (stdout), код выхода
+  C --> S : AnalysisReport
+end
+alt MarketDataException
+  S --> A : исключение (строка, причина)
+  A --> B : 422 {error, line}
+  B --> U : сообщение об ошибке
+else успех
+  S -> DBX : INSERT analysis_run, metrics_report,\nindicator_point, trade_signal (1 транзакция)
+  DBX --> S : run_id
+  S --> A : AnalysisReport + runId
+  A --> B : 200 JSON
+  B --> U : метрики, графики цены/SMA/RSI,\nтаблица сигналов
+end
+@enduml

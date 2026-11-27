@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Market Analytics</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="vendor/chart.umd.min.js" defer></script>
+  <script src="app.js" defer></script>
+  <script src="lab.js" defer></script>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="logo" aria-hidden="true">▲</span>
+    <div>
+      <h1>Market Analytics</h1>
+      <p class="sub">Анализ рынка ценных бумаг · C++ ядро + Kotlin веб-сервис · <span id="storage-badge"></span></p>
+    </div>
+  </div>
+  <nav class="tabs" role="tablist">
+    <button role="tab" class="tab active" data-tab="analysis" aria-selected="true">Анализ инструмента</button>
+    <button role="tab" class="tab" data-tab="compare" aria-selected="false">Сравнение</button>
+    <button role="tab" class="tab" data-tab="lab" aria-selected="false">Лаборатория C++</button>
+  </nav>
+</header>
+
+<div class="layout">
+  <aside class="sidebar">
+    <section class="panel">
+      <h2>Инструменты</h2>
+      <p id="sync-note" class="hint" hidden></p>
+      <ul id="instrument-list" class="instrument-list" aria-label="Список инструментов"></ul>
+    </section>
+    <section class="panel" id="moex-panel">
+      <h2>Добавить с Мосбиржи</h2>
+      <form id="moex-form" class="upload">
+        <label>Тикер <input id="moex-ticker" placeholder="например, PLZL" maxlength="32" pattern="[A-Za-z0-9_.\-]{1,32}" required></label>
+        <button type="submit">Загрузить котировки</button>
+        <p class="hint">Акции режима TQBR (SBER, AFLT, MTSS, …) и индексы (IMOEX, RTSI, MOEXOG, …). История за 3 года, дневные свечи, источник — ISS API Московской биржи.</p>
+      </form>
+    </section>
+    <section class="panel">
+      <h2>Загрузить свой CSV</h2>
+      <form id="upload-form" class="upload">
+        <label>Тикер <input id="upload-ticker" value="MY_STOCK" maxlength="32" pattern="[A-Za-z0-9_.\-]{1,32}" required></label>
+        <label class="file">Файл <input id="upload-file" type="file" accept=".csv,text/csv" required></label>
+        <button type="submit">Сохранить в базу и анализировать</button>
+        <p class="hint">Формат: <code>Date,Open,High,Low,Close,Volume</code>, даты YYYY-MM-DD по возрастанию, до 5 МБ. Повторная загрузка того же тикера заменяет котировки.</p>
+      </form>
+    </section>
+    <p class="disclaimer">Котировки — Московская биржа (iss.moex.com), дневные свечи; свеча текущего дня может быть ещё не закрыта. Инструменты с меткой «демо» — синтетические данные. Результаты — учебный технический анализ, не инвестиционная рекомендация.</p>
+  </aside>
+
+  <main>
+    <section class="params panel" id="params-panel" aria-label="Параметры анализа">
+      <label>SMA быстрая <input id="p-fast" type="number" min="1" max="500" value="10"></label>
+      <label>SMA медленная <input id="p-slow" type="number" min="2" max="500" value="30"></label>
+      <label>RSI период <input id="p-rsi" type="number" min="1" max="500" value="14"></label>
+      <label>Безриск. ставка, % <input id="p-rf" type="number" step="0.1" min="-50" max="100" value="0"></label>
+      <button id="apply" type="button">Применить</button>
+    </section>
+
+    <div id="error" class="error" role="alert" hidden></div>
+
+    <section id="tab-analysis" class="tab-pane">
+      <div class="title-row">
+        <h2 id="a-title">—</h2>
+        <span id="a-name" class="meta"></span>
+        <span id="a-meta" class="meta"></span>
+        <span id="a-engine" class="badge"></span>
+        <span id="a-source" class="meta"></span>
+        <button id="a-refresh" type="button" class="ghost" hidden>Обновить с биржи</button>
+      </div>
+      <div class="tiles" id="tiles"></div>
+
+      <div class="panel chart-panel">
+        <div class="chart-head">
+          <h3>Цена закрытия и скользящие средние</h3>
+          <div class="legend" id="price-legend"></div>
+        </div>
+        <div class="chart-box tall"><canvas id="price-chart" aria-label="График цены"></canvas></div>
+      </div>
+
+      <div class="panel chart-panel">
+        <div class="chart-head">
+          <h3 id="rsi-title">RSI</h3>
+          <div class="legend"><span class="key"><i class="ref"></i>уровни 30 / 70</span></div>
+        </div>
+        <div class="chart-box"><canvas id="rsi-chart" aria-label="График RSI"></canvas></div>
+      </div>
+
+      <div class="panel">
+        <h3>Сигналы пересечения SMA</h3>
+        <div class="table-wrap">
+          <table class="data">
+            <thead><tr><th>Дата</th><th>Сигнал</th><th class="num">Цена</th></tr></thead>
+            <tbody id="signals"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h3 id="history-title">История анализов</h3>
+        <p class="hint">Каждый запуск сохраняется в базе вместе с параметрами, метриками, рядами и сигналами. Нажмите на строку, чтобы открыть сохранённый отчёт.</p>
+        <div class="table-wrap">
+          <table class="data">
+            <thead><tr><th>Запуск</th><th>Время</th><th>Параметры</th><th class="num">Доходность, %</th><th class="num">Шарп</th><th>Тренд</th></tr></thead>
+            <tbody id="history"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="tab-compare" class="tab-pane" hidden>
+      <div class="panel">
+        <h3>Выберите 2–8 инструментов</h3>
+        <div id="compare-picker" class="picker"></div>
+        <button id="compare-run" type="button">Сравнить</button>
+      </div>
+      <div id="compare-result" hidden>
+        <div class="panel chart-panel">
+          <div class="chart-head">
+            <h3>Динамика, приведённая к 100</h3>
+            <div class="legend" id="compare-legend"></div>
+          </div>
+          <div class="chart-box tall"><canvas id="compare-chart" aria-label="Сравнительный график"></canvas></div>
+        </div>
+        <div class="panel">
+          <h3>Метрики риска и доходности</h3>
+          <div class="table-wrap">
+            <table class="data">
+              <thead><tr><th>Тикер</th><th class="num">Доходность, %</th><th class="num">Волатильность, %</th>
+                <th class="num">Макс. просадка, %</th><th class="num">Шарп</th><th class="num">RSI</th><th>Тренд</th></tr></thead>
+              <tbody id="compare-rows"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="panel">
+          <h3>Корреляция дневных доходностей</h3>
+          <div class="table-wrap"><table class="heat" id="corr"></table></div>
+          <div class="scale"><span>−1</span><i class="scale-bar"></i><span>+1</span></div>
+        </div>
+      </div>
+    </section>
+    <section id="tab-lab" class="tab-pane" hidden>
+      <div class="panel lab-intro">
+        <h2>Квант-лаборатория</h2>
+        <p>Тяжёлые расчёты выполняет <b>C++ модуль</b> <code>market_cli</code>: перебор сотен вариантов стратегии, десятки тысяч сценариев и портфелей.
+          Kotlin-сервис берёт котировки из PostgreSQL, передаёт их в C++ и сохраняет результат в историю.</p>
+        <p id="lab-status" class="hint"></p>
+        <div class="lab-tools" role="tablist">
+          <button type="button" class="tab active" data-lab="backtest">Бэктест стратегии</button>
+          <button type="button" class="tab" data-lab="montecarlo">Монте-Карло риск</button>
+          <button type="button" class="tab" data-lab="portfolio">Оптимизация портфеля</button>
+        </div>
+      </div>
+
+      <form class="panel lab-form" id="lab-form-backtest" data-kind="backtest">
+        <p class="hint">Стратегия: держать бумагу, пока SMA(fast) выше SMA(slow). C++ перебирает пары fast 2…50 и slow 10…250, выбирает лучшую по Шарпу
+          на первой части истории и честно проверяет её на оставшейся части, которую при подборе «не видел».</p>
+        <div class="params">
+          <label>Инструмент <select id="lab-bt-ticker" class="lab-ticker"></select></label>
+          <label>Комиссия, % за сделку <input id="lab-bt-commission" type="number" step="0.01" min="0" max="2" value="0.05"></label>
+          <label>Доля истории для подбора <input id="lab-bt-train" type="number" step="0.05" min="0.5" max="0.9" value="0.7"></label>
+          <button type="submit">Запустить в C++</button>
+        </div>
+      </form>
+
+      <form class="panel lab-form" id="lab-form-montecarlo" data-kind="montecarlo" hidden>
+        <p class="hint">Бутстреп: будущие дни собираются из случайно выбранных исторических дневных доходностей. Получаем распределение цены через N дней,
+          VaR (потеря, которую не превысим с вероятностью 95 / 99 %) и CVaR (средняя потеря в худших 5 / 1 % случаев).</p>
+        <div class="params">
+          <label>Инструмент <select id="lab-mc-ticker" class="lab-ticker"></select></label>
+          <label>Горизонт
+            <select id="lab-mc-horizon"><option value="5">неделя</option><option value="21" selected>месяц</option><option value="63">квартал</option><option value="252">год</option></select>
+          </label>
+          <label>Сценариев
+            <select id="lab-mc-paths"><option>10000</option><option selected>50000</option><option>100000</option><option>200000</option></select>
+          </label>
+          <button type="submit">Запустить в C++</button>
+        </div>
+      </form>
+
+      <form class="panel lab-form" id="lab-form-portfolio" data-kind="portfolio" hidden>
+        <p class="hint">Случайный поиск по долям бумаг (только покупка, сумма 100 %): C++ оценивает доходность и риск каждого портфеля по ковариационной матрице
+          и находит портфель с максимальным коэффициентом Шарпа и с минимальным риском.</p>
+        <div id="lab-pf-picker" class="picker"></div>
+        <div class="params">
+          <label>Портфелей <select id="lab-pf-samples"><option>20000</option><option selected>100000</option><option>300000</option></select></label>
+          <label>Безриск. ставка, % <input id="lab-pf-rf" type="number" step="0.5" min="-50" max="100" value="0"></label>
+          <button type="submit">Запустить в C++</button>
+        </div>
+      </form>
+
+      <div id="lab-result"></div>
+
+      <div class="panel">
+        <h3>История расчётов</h3>
+        <div class="table-wrap">
+          <table class="data">
+            <thead><tr><th>№</th><th>Время</th><th>Расчёт</th><th>Бумаги</th><th>Итог</th><th class="num">C++, мс</th></tr></thead>
+            <tbody id="lab-history"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+</body>
+</html>

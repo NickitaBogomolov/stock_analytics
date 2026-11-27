@@ -1,0 +1,89 @@
+@startuml class-core
+!include _style.iuml
+title Диаграмма классов ядра (C++ namespace market / Kotlin package market.core)
+hide empty members
+
+class Candle <<struct>> {
+  +date: string
+  +open: double
+  +high: double
+  +low: double
+  +close: double
+  +volume: int64
+}
+class AnalysisParams <<struct>> {
+  +fastPeriod: size = 10
+  +slowPeriod: size = 30
+  +rsiPeriod: size = 14
+  +riskFreeRatePct: double = 0
+}
+class TradeSignal <<struct>> {
+  +date: string
+  +type: SignalType
+  +price: double
+}
+enum SignalType {
+  BUY
+  SELL
+}
+class AnalysisReport <<struct>> {
+  +ticker: string
+  +count: size
+  +firstDate, lastDate: string
+  +lastClose: double
+  +totalReturnPct: double
+  +annualVolatilityPct: double
+  +maxDrawdownPct: double
+  +sharpeRatio: double
+  +rsi: double
+  +trend: Trend
+  +rsiZone: RsiZone
+  +series: dates, close, smaFast, smaSlow, rsi
+}
+enum Trend {
+  UPTREND
+  DOWNTREND
+  SIDEWAYS
+}
+enum RsiZone {
+  OVERBOUGHT
+  OVERSOLD
+  NEUTRAL
+}
+class MarketDataError <<exception>> {
+  +line(): size
+}
+class CsvLoader <<module>> {
+  +loadCsv(in): vector<Candle>
+  +loadCsvFile(path): vector<Candle>
+  +validateCandle(c, line)
+}
+class Indicators <<module>> {
+  +sma(values, period)
+  +ema(values, period)
+  +rsi(values, period)
+  +dailyReturns(closes)
+  +annualizedVolatility(returns)
+  +maxDrawdown(closes)
+  +sharpeRatio(returns, rf)
+  +crossoverSignals(dates, closes, fast, slow)
+}
+class Analyzer <<module>> {
+  +analyze(ticker, candles, params): AnalysisReport
+  +toJson(report): string
+  +writeReport(report, path)
+}
+
+TradeSignal --> SignalType
+AnalysisReport *-- "0..*" TradeSignal
+AnalysisReport *-- AnalysisParams
+AnalysisReport --> Trend
+AnalysisReport --> RsiZone
+CsvLoader ..> Candle : creates
+CsvLoader ..> MarketDataError : throws
+Analyzer ..> Indicators : uses
+Analyzer ..> Candle : reads
+Analyzer ..> AnalysisReport : creates
+Analyzer ..> MarketDataError : throws
+Indicators ..> TradeSignal : creates
+@enduml

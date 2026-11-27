@@ -1,0 +1,109 @@
+@startuml class-web
+!include _style.iuml
+title Диаграмма классов веб-слоя (Kotlin, package market.web)
+hide empty members
+
+class "Application.kt" as App <<Ktor module>> {
+  +module(service: MarketService)
+  -analysisParams(): AnalysisParams
+  -engine(): Engine
+  .. маршруты ..
+  GET /api/instruments
+  GET /api/instruments/{t}/analysis
+  POST /api/analysis
+  GET /api/compare
+  GET /api/engines
+  POST|DELETE /api/instruments/{t}
+  GET /api/runs, /api/runs/{id}
+  POST /api/lab/{backtest|montecarlo|portfolio}
+  GET /api/lab/runs
+}
+interface MarketRepository {
+  +instruments(), candles(t)
+  +saveInstrument(t, source, candles)
+  +deleteInstrument(t)
+  +saveRun(report): Long
+  +run(id), runs(t, limit)
+  +saveComparison(result, params): Long
+  +saveLabRun(...), labRuns(limit), labRun(id)
+}
+class PostgresRepository {
+  -ds: DataSource
+}
+class InMemoryRepository
+class "Database / DemoDataSeeder" as DB <<object>> {
+  +connect(cfg): HikariDataSource
+  +seed(repo, dir)
+}
+class MarketService {
+  -repo: MarketRepository
+  -cpp: CppEngine
+  +instruments(): List<InstrumentInfo>
+  +candles(ticker): List<Candle>
+  +analyze(ticker, params, engine): AnalysisReport
+  +importInstrument(ticker, csv): InstrumentInfo
+  +deleteInstrument(ticker)
+  +analyzeUpload(ticker, csv, params, engine): AnalysisReport
+  +runs(ticker, limit): List<RunSummary>
+  +run(runId): AnalysisReport
+  +compare(tickers, params): CompareResult
+  +engines(): EnginesInfo
+}
+class LabService {
+  -repo: MarketRepository
+  -cpp: CppEngine
+  +backtest(ticker, commission, trainShare, rf): LabRunResponse
+  +monteCarlo(ticker, paths, horizon, seed): LabRunResponse
+  +portfolio(tickers, samples, rf): LabRunResponse
+  +runs(limit), run(id)
+}
+class CppEngine {
+  -binary: File?
+  -timeoutSeconds: Long
+  +available: Boolean
+  +run(args): String  // JSON
+  +analyze(csv, ticker, params): AnalysisReport
+  +{static} locate(): CppEngine
+}
+enum Engine {
+  KOTLIN
+  CPP
+}
+class InstrumentInfo <<DTO>>
+class CompareResult <<DTO>> {
+  +dates
+  +normalized: Map<String, List<Double>>
+  +rows: List<CompareRow>
+  +correlation: List<List<Double>>
+}
+class CompareRow <<DTO>>
+class ApiError <<DTO>> {
+  +error: String
+  +line: Int?
+}
+package "market.core" {
+  class Analyzer <<object>>
+  class CsvLoader <<object>>
+  class Indicators <<object>>
+}
+class "market_cli (C++)" as CLI <<executable>>
+
+App --> MarketService
+App --> LabService
+LabService --> MarketRepository
+LabService --> CppEngine
+App ..> ApiError : StatusPages
+App ..> Engine
+MarketService --> CppEngine
+MarketService --> MarketRepository
+PostgresRepository ..|> MarketRepository
+InMemoryRepository ..|> MarketRepository
+DB ..> PostgresRepository : Flyway migrate
+MarketService ..> Analyzer
+MarketService ..> CsvLoader
+MarketService ..> Indicators : correlation
+MarketService ..> InstrumentInfo
+MarketService ..> CompareResult
+CompareResult *-- CompareRow
+CppEngine ..> CLI : ProcessBuilder
+@enduml
